@@ -3,6 +3,7 @@ import torch
 import math
 import numpy as np
 import pickle
+import matplotlib.pyplot as plt
 
 
 # Variance schedule
@@ -60,20 +61,64 @@ def create_dataset(strokes, texts, samples, style_extractor, batch_size, buffer_
 
 # nn utils
 def get_alphas(batch_size, alpha_set):
-    pass
+    #TODO: This is currently wrong but there's no way to verify the correctness until we can run train
+    alpha_indices = torch.randint(low=0, high=len(alpha_set) - 1, size=(batch_size, 1))
+    lower_alphas = torch.gather(alpha_set, alpha_indices)
+    upper_alphas = torch.gather(alpha_set, alpha_indices + 1)
+    alphas = torch.rand(lower_alphas.shape) * (upper_alphas - lower_alphas)
+    alphas += lower_alphas
+    alphas = alphas.view(batch_size, 1, 1)
+    return alphas
 
 
 def standard_diffusion_step(xt, eps, beta, alpha, add_sigma=True):
-    pass
+    xt_minus1 = (1 / torch.sqrt(1 - beta)) * (xt - (beta * eps / torch.sqrt(1 - alpha)))
+    if add_sigma:
+        xt_minus1 += torch.sqrt(beta) * torch.randn(xt.shape)
+    return xt_minus1
 
 
 def new_diffusion_step(xt, eps, beta, alpha, alpha_next):
-    pass
+    xt_minus1 = (xt - torch.sqrt(1 - alpha) * eps) / torch.sqrt(1 - beta)
+    xt_minus1 += torch.randn(xt.shape) * torch.sqrt(1 - alpha_next)
+    return xt_minus1
 
 
 def run_batch_inference(model, beta_set, text, style, tokenizer=None, time_steps=480, diffusion_mode='new',
                         show_every=None, show_samples=True, path=None):
-    pass
+    if isinstance(text, str):
+        text = torch.tensor([tokenizer.encode(text) + [1]])
+    elif isinstance(text, list) and isinstance(text[0], str):
+        tmp = []
+        for i in text:
+            tmp.append(tokenizer.encode(i) + [1])
+        text = torch.tensor(tmp)
+
+    bs = text.shape[0]
+    L = len(beta_set)
+    alpha_set = torch.cumprod(1 - beta_set)
+    x = torch.randn([bs, time_steps, 2])
+
+    for i in range(L - 1, -1, -1):
+        alpha = alpha_set[i] * torch.ones([bs, 1, 1])
+        beta = beta_set[i] * torch.ones([bs, 1, 1])
+        a_next = alpha_set[i - 1] if i > 1 else 1.
+        model_out, pen_lifts, att = model(x, text, torch.sqrt(alpha), style)
+        if diffusion_mode == 'standard':
+            x = standard_diffusion_step(x, model_out, beta, alpha, add_sigma=bool(i))
+        else:
+            x = new_diffusion_step(x, model_out, beta, alpha, a_next)
+
+        if show_every is not None:
+            if i in show_every:
+                plt.imshow(att[0][0])
+                plt.show()
+
+    x = torch.cat([x, pen_lifts], dim=-1)
+    for i in range(bs):
+        plt.show(x[i], scale=1, show_output=show_samples, name=path)
+
+    return x.numpy()
 
 
 class Tokenizer:
