@@ -1,6 +1,7 @@
 import os
 import numpy as np
 import torch
+import torchvision
 import matplotlib.pyplot as plt
 import random
 import pickle
@@ -8,6 +9,8 @@ import argparse
 import string
 from utils import Tokenizer
 from PIL import Image
+from torchvision.transforms import InterpolationMode
+
 
 '''
 Creates the online and offline dataset for training
@@ -111,7 +114,9 @@ def read_img(path, height):
     img_arr = np.expand_dims(np.array(image).astype('uint8'), 2)
     img_arr = remove_whitespace(img_arr, thresh=127)
     h, w, _ = img_arr.shape
-    img_arr = tf.image.resize(img_arr, (height, height * w // h))
+    img_arr = img_arr.reshape(1, h, w)
+    transform = torchvision.transforms.Resize((height, height * w // h), interpolation=InterpolationMode.BILINEAR)
+    img_arr =  transform(torch.tensor(img_arr))
     return img_arr.numpy().astype('uint8')
 
 def create_dataset(formlist, strokes_path, images_path, tokenizer, text_dict, height):
