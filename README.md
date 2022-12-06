@@ -6,8 +6,8 @@ Current changes:
 
 | Tensorflow         | Pytorch   | Notes |
 |--------------------|-----------|-------|
- | Dropout            | Dropout   | SP    |
- | LayerNormalization | LayerNorm | MI    |
+| Dropout            | Dropout   | SP    |
+| LayerNormalization | LayerNorm | MI    |
 | Dense              | Linear    | MI    |
 | swish              | SiLu      | SP    |
 | Embedding          | Embedding | SP    |
