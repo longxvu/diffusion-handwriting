@@ -1,6 +1,8 @@
 import torch
 import argparse
 import utils
+import nn
+from torch.optim import Adam
 
 
 def get_args():
@@ -42,3 +44,16 @@ if __name__ == "__main__":
     L = 60
     tokenizer = utils.Tokenizer()
     beta_set = utils.get_beta_set()
+    alpha_set = torch.cumprod(1 - beta_set, dim=0)
+    style_extractor = nn.StyleExtractor()
+    model = nn.DiffusionWriter(num_layers=NUM_ATT_LAYERS, c1=C1, c2=C2, c3=C3, drop_rate=DROP_RATE)
+
+    lr = nn.InvSqrtSchedule(C3, warmup_steps=WARMUP_STEPS)
+    # TODO: There's a clip grad norm in the original Tensorflow implementation
+    optimizer = Adam(model.parameters(), lr, betas=(0.9, 0.98))
+
+    path = './data/train_strokes.p'
+    strokes, texts, samples = utils.preprocess_data(path, MAX_TEXT_LEN, MAX_SEQ_LEN, WIDTH, 96)
+    dataset = utils.create_dataset(strokes, texts, samples, style_extractor, BATCH_SIZE, BUFFER_SIZE)
+
+    # TODO: Train step

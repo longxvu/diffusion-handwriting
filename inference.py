@@ -63,7 +63,7 @@ def main():
     model.load_weights(args.weights)
 
     #writer_img = tf.expand_dims(preprocessing.read_img(sourcename, 96), 0)
-    writer_img = torch.unsqueeze_dims(preprocessing.read_img(sourcename, 96), 0)
+    writer_img = torch.unsqueeze(preprocessing.read_img(sourcename, 96), dim=0)
     style_vector = style_extractor(writer_img)
     utils.run_batch_inference(model, beta_set, args.textstring, style_vector, 
                                 tokenizer=tokenizer, time_steps=timesteps, diffusion_mode=args.diffmode, 

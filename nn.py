@@ -1,10 +1,7 @@
-import tensorflow as tf
-import numpy as np
-from tensorflow.keras import Model, Sequential
-from tensorflow.keras.applications import MobileNetV2
-from tensorflow.keras.layers import (Dense, Conv1D, Embedding, UpSampling1D, AveragePooling1D, 
-AveragePooling2D, GlobalAveragePooling2D, Activation, LayerNormalization, Dropout, Layer)
 import torch
+from torch import nn
+import numpy as np
+from torch.nn import Dropout, Linear, LayerNorm, SiLU, Embedding, Conv1d, AvgPool1d, Upsample
 
 def create_padding_mask(seq, repeats=1):
     seq = torch.eq(seq, 0).float()
@@ -191,15 +188,15 @@ class StyleExtractor(torch.nn.Module):
         x = self.local_pool(x)
         output = torch.squeeze(x, axis=1)
         return output
-        
-class DecoderLayer(Layer):
+
+class DecoderLayer(nn.Module):
     def __init__(self, d_model, num_heads, drop_rate=0.1, pos_factor=1):
         super().__init__()
         self.text_pe = positional_encoding(2000, d_model, pos_factor=1)
         self.stroke_pe = positional_encoding(2000, d_model, pos_factor=pos_factor)
         self.drop = Dropout(drop_rate)
-        self.lnorm = LayerNormalization(epsilon=1e-6, trainable=False)
-        self.text_dense = Dense(d_model)
+        self.lnorm = LayerNorm(eps=1e-6)  # TODO: input shape and set this to not trainable
+        self.text_dense = Linear(out_features=d_model)  # TODO: missing in_features
 
         self.mha = MultiHeadAttention(d_model, num_heads)
         self.mha2 = MultiHeadAttention(d_model, num_heads)
@@ -209,17 +206,17 @@ class DecoderLayer(Layer):
         self.affine2 = AffineTransformLayer(d_model)
         self.affine3 = AffineTransformLayer(d_model)
     
-    def call(self, x, text, sigma, text_mask):
-        text = self.text_dense(tf.nn.swish(text))
+    def forward(self, x, text, sigma, text_mask):
+        text = self.text_dense(SiLU(text))
         text = self.affine0(self.lnorm(text), sigma)
-        text_pe = text + self.text_pe[:, :tf.shape(text)[1]]
+        text_pe = text + self.text_pe[:, :text.size(1)]
 
-        x_pe = x + self.stroke_pe[:, :tf.shape(x)[1]]
+        x_pe = x + self.stroke_pe[:, :x.size(1)]
         x2, att = self.mha(x_pe, text_pe, text, text_mask)
         x2 = self.lnorm(self.drop(x2))
         x2 = self.affine1(x2, sigma) + x
 
-        x2_pe = x2 + self.stroke_pe[:, :tf.shape(x)[1]]
+        x2_pe = x2 + self.stroke_pe[:, :x.size(1)]
         x3, _ = self.mha2(x2_pe, x2_pe, x2)
         x3 = self.lnorm(x2 + self.drop(x3))
         x3 = self.affine2(x3, sigma)
@@ -229,14 +226,14 @@ class DecoderLayer(Layer):
         out = self.affine3(self.lnorm(x4), sigma)
         return out, att
 
-class Text_Style_Encoder(Model):
+class Text_Style_Encoder(nn.Module):
     def __init__(self, d_model, d_ff=512):
         super().__init__()
         self.emb = Embedding(73, d_model)
-        self.text_conv = Conv1D(d_model, 3, padding='same')
+        self.text_conv = Conv1d(out_channels=d_model, kernel_size=3, padding='same')  # TODO: MI
         self.style_ffn = ff_network(d_model, d_ff)
         self.mha = MultiHeadAttention(d_model, 8)
-        self.layernorm = LayerNormalization(epsilon=1e-6, trainable=False)
+        self.layernorm = LayerNorm(eps=1e-6)
         self.dropout = Dropout(0.3)
         self.affine1 = AffineTransformLayer(d_model)
         self.affine2 = AffineTransformLayer(d_model)
@@ -244,7 +241,7 @@ class Text_Style_Encoder(Model):
         self.affine4 = AffineTransformLayer(d_model)
         self.text_ffn = ff_network(d_model, d_model*2)
 
-    def call(self, text, style, sigma):
+    def forward(self, text, style, sigma):
         style = reshape_up(self.dropout(style), 5)
         style = self.affine1(self.layernorm(self.style_ffn(style)), sigma)
         text = self.emb(text)
@@ -254,34 +251,35 @@ class Text_Style_Encoder(Model):
         text_out = self.affine4(self.layernorm(self.text_ffn(text)), sigma)
         return text_out
 
-class DiffusionWriter(Model):
+class DiffusionWriter(nn.Module):
     def __init__(self, num_layers=4, c1=128, c2=192, c3=256, drop_rate=0.1, num_heads=8):
         super().__init__()
-        self.input_dense = Dense(c1)
+        self.input_dense = Linear(c1)  # TODO: MI
         self.sigma_ffn = ff_network(c1//4, 2048)
         self.enc1 = ConvSubLayer(c1, [1, 2])
         self.enc2 = ConvSubLayer(c2, [1, 2])
         self.enc3 = DecoderLayer(c2, 3, drop_rate, pos_factor=4)
         self.enc4 = ConvSubLayer(c3, [1, 2])
         self.enc5 = DecoderLayer(c3, 4, drop_rate, pos_factor=2)
-        self.pool = AveragePooling1D(2)
-        self.upsample = UpSampling1D(2)
+        self.pool = AvgPool1d(2)
+        # In the original code, UpSampling1D repeats the nearest neighbor with size=scale_factor
+        self.upsample = Upsample(scale_factor=2, mode="nearest")
 
-        self.skip_conv1 = Conv1D(c2, 3, padding='same')
-        self.skip_conv2 = Conv1D(c3, 3, padding='same')
-        self.skip_conv3 = Conv1D(c2*2, 3, padding='same')
+        # TODO: Missing a bunch of input shape here
+        self.skip_conv1 = Conv1d(c2, 3, padding='same')
+        self.skip_conv2 = Conv1d(c3, 3, padding='same')
+        self.skip_conv3 = Conv1d(c2*2, 3, padding='same')
         self.text_style_encoder = Text_Style_Encoder(c2*2, c2*4)
-        self.att_dense = Dense(c2*2)
-        self.att_layers = [DecoderLayer(c2*2, 6, drop_rate) 
-                     for i in range(num_layers)]
+        self.att_dense = Linear(c2*2)
+        self.att_layers = [DecoderLayer(c2*2, 6, drop_rate) for _ in range(num_layers)]
                      
         self.dec3 = ConvSubLayer(c3, [1, 2])
         self.dec2 = ConvSubLayer(c2, [1, 1])
         self.dec1 = ConvSubLayer(c1, [1, 1])
-        self.output_dense = Dense(2)
-        self.pen_lifts_dense = Dense(1, activation='sigmoid')
+        self.output_dense = Linear(2)
+        self.pen_lifts_dense = Linear(1) # Including sigmoid activation
  
-    def call(self, strokes, text, sigma, style_vector):
+    def forward(self, strokes, text, sigma, style_vector):
         sigma = self.sigma_ffn(sigma)
         text_mask = create_padding_mask(text)
         text = self.text_style_encoder(text, style_vector, sigma)
@@ -313,4 +311,5 @@ class DiffusionWriter(Model):
         
         output = self.output_dense(x)
         pl = self.pen_lifts_dense(x)
+        pl = nn.functional.sigmoid(pl)
         return output, pl, att
