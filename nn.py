@@ -102,6 +102,7 @@ class MultiHeadAttention(torch.nn.Module):
 """
 MultiHeadAttention = torch.nn.MultiHeadAttention # I think this is essentially the same thing???
 
+"""
 class InvSqrtSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
     def __init__(self, d_model, warmup_steps=4000):
         super().__init__()
@@ -112,6 +113,14 @@ class InvSqrtSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
         arg1 = tf.math.rsqrt(step)
         arg2 = step * (self.warmup_steps ** -1.5)
         return tf.math.rsqrt(self.d_model) * tf.math.minimum(arg1, arg2)
+"""
+
+def invSqrtSchedule(optim, warmup_steps, d_model, step):
+    arg1 = 1 / torch.sqrt(step)
+    arg2 = step * (self.warmup_steps ** -1.5)
+    lr = 1/ torch.sqrt(self.d_model) * torch.min(arg1, arg2)
+    for g in optim.param_groups:
+        g['lr'] = lr
 
 class AffineTransformLayer(Layer):
     """
