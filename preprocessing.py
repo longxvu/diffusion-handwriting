@@ -10,6 +10,8 @@ import string
 from utils import Tokenizer
 from PIL import Image
 from torchvision.transforms import InterpolationMode
+from tqdm import tqdm
+import os
 
 
 '''
@@ -58,7 +60,7 @@ def combine_strokes(x, n):
  
 def parse_page_text(dir_path, id):
     dict = {}
-    f = open(dir_path + '/' + id)
+    f = open(os.path.join(dir_path, id))
     has_started = False
     line_num = -1
     for l in f.readlines():
@@ -70,6 +72,7 @@ def parse_page_text(dir_path, id):
                 # add the id of the line -0n as a key to dictionary, 
                 # with value of the line number (excluding the last \n)
             line_num += 1
+    f.close()
     return dict
 
 def create_dict(path):
@@ -116,7 +119,7 @@ def read_img(path, height):
     h, w, _ = img_arr.shape
     img_arr = img_arr.reshape(1, h, w)
     transform = torchvision.transforms.Resize((height, height * w // h), interpolation=InterpolationMode.BILINEAR)
-    img_arr =  transform(torch.tensor(img_arr))
+    img_arr = transform(torch.tensor(img_arr))
     return img_arr.numpy().astype('uint8')
 
 def create_dataset(formlist, strokes_path, images_path, tokenizer, text_dict, height):
@@ -125,7 +128,7 @@ def create_dataset(formlist, strokes_path, images_path, tokenizer, text_dict, he
     same_writer_examples = []
     forms = open(formlist).readlines()
 
-    for f in forms:
+    for f in tqdm(forms):
         path = strokes_path + '/' + f[1:4] + '/' + f[1:8]
         offline_path = images_path + '/' + f[1:4] + '/' + f[1:8]
 
@@ -154,7 +157,7 @@ def main():
                         default ./data/lineImages-all', default='./data/lineImages-all')
                         
     parser.add_argument('-H', '--height', help='the height of offline images, \
-                        default 96', type=int, default= 96)
+                        default 96', type=int, default=96)
 
     args = parser.parse_args()
     t_path = args.text_path
@@ -183,6 +186,7 @@ def main():
         pickle.dump(train_strokes, f)
     with open('./data/test_strokes.p', 'wb') as f:
         pickle.dump(test_strokes, f)
+
 
 if __name__ == '__main__':
     main()

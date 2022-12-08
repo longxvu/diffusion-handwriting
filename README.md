@@ -4,19 +4,19 @@ Reference from Tensorflow implementation here: https://github.com/tcl9876/Diffus
 
 Current changes:
 
-| Tensorflow         | Pytorch   | Notes |
-|--------------------|-----------|-------|
-| Dropout            | Dropout   | SP    |
-| LayerNormalization | LayerNorm | MI    |
-| Dense              | Linear    | MI    |
-| swish              | SiLu      | SP    |
-| Embedding          | Embedding | SP    |
-| Conv1D             | Conv1d    | MI    |
-| AveragePooling1D   | AvgPool1d | SP    |
-| UpSampling1D       | Upsample  | DP    |
-|                    |           ||
-|                    |           ||
-|                    |           ||
+| Tensorflow         | Pytorch         | Notes |
+|--------------------|-----------------|-------|
+| Dropout            | Dropout         | SP    |
+| LayerNormalization | LayerNorm       | MI    |
+| Dense              | Linear          | MI    |
+| swish              | SiLu            | SP    |
+| Embedding          | Embedding       | SP    |
+| Conv1D             | Conv1d          | MI    |
+| AveragePooling1D   | AvgPool1d       | SP    |
+| UpSampling1D       | Upsample        | DP    |
+| gather_nd          | simple indexing ||
+|                    |                 ||
+|                    |                 ||
 
 
 Notation:

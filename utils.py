@@ -4,6 +4,9 @@ import math
 import numpy as np
 import pickle
 import matplotlib.pyplot as plt
+from tqdm import tqdm
+from torch.utils.data import TensorDataset, DataLoader
+from nn import StyleExtractor
 
 
 # Variance schedule
@@ -27,9 +30,9 @@ def pad_stroke_seq(x, maxlength):
 
 
 def pad_img(img, width, height):
-    pad_len = width - img.shape[1]
-    padding = np.full((height, pad_len, 1), 255, dtype=np.uint8)
-    img = np.concatenate((img, padding), axis=1)
+    pad_len = width - img.shape[2]
+    padding = np.full((1, height, pad_len), 255, dtype=np.uint8)
+    img = np.concatenate((img, padding), axis=2)
     return img
 
 
@@ -38,14 +41,15 @@ def preprocess_data(path, max_text_len, max_seq_len, img_width, img_height):
         ds = pickle.load(f)
 
     strokes, texts, samples = [], [], []
-    for x, text, sample in ds:
+    for x, text, sample in tqdm(ds):
         if len(text) < max_text_len:
             x = pad_stroke_seq(x, maxlength=max_seq_len)
             zeros_text = np.zeros((max_text_len - len(text),))
             text = np.concatenate((text, zeros_text))
             h, w, _ = sample.shape
 
-            if x is not None and sample.shape[1] < img_width:
+            # Ignore all samples with width > img_width
+            if x is not None and sample.shape[2] < img_width:
                 sample = pad_img(sample, img_width, img_height)
                 strokes.append(x)
                 texts.append(text)
@@ -55,16 +59,30 @@ def preprocess_data(path, max_text_len, max_seq_len, img_width, img_height):
     return strokes, texts, samples
 
 
-def create_dataset(strokes, texts, samples, style_extractor, batch_size, buffer_size):
-    pass
+def cache_style_vectors(pickle_path, max_text_len=50, max_seq_len=488, img_width=1400, img_height=96, batch_size=128,
+                        save_path="data/cached_style_vec.npy"):
+    strokes, texts, samples = preprocess_data(pickle_path, max_text_len, max_seq_len, img_width, img_height)
+    dataset = TensorDataset(torch.tensor(samples))
+    data_loader = DataLoader(dataset, batch_size, shuffle=False)
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    style_extractor = StyleExtractor()
+    style_extractor.to(device)
+    style_vectors = []
+    tqdm.write("Creating style vectors")
+    for image in tqdm(data_loader):
+        style_output = style_extractor(image[0].to(device))
+        style_vectors.append(style_output)
+
+    style_vectors = torch.cat(style_vectors).cpu().numpy()
+    np.save(save_path, style_vectors)
 
 
 # nn utils
 def get_alphas(batch_size, alpha_set):
-    #TODO: This is currently wrong but there's no way to verify the correctness until we can run train
     alpha_indices = torch.randint(low=0, high=len(alpha_set) - 1, size=(batch_size, 1))
-    lower_alphas = torch.gather(alpha_set, alpha_indices)
-    upper_alphas = torch.gather(alpha_set, alpha_indices + 1)
+    lower_alphas = alpha_set[alpha_indices]
+    upper_alphas = alpha_set[alpha_indices + 1]
     alphas = torch.rand(lower_alphas.shape) * (upper_alphas - lower_alphas)
     alphas += lower_alphas
     alphas = alphas.view(batch_size, 1, 1)
@@ -152,3 +170,7 @@ class Tokenizer:
             tokens = tokens.numpy()
         text = [self.chars[token] for token in tokens]
         return "".join(text)
+
+
+# if __name__ == "__main__":
+#     cache_style_vectors("data/train_strokes.p")

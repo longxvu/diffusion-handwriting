@@ -1,8 +1,15 @@
+import os
+
 import torch
 import argparse
 import utils
 import nn
 from torch.optim import Adam
+from torch.nn import BCELoss, MSELoss
+from torch.utils.data import DataLoader
+from dataset import IAMDataset
+from tqdm import tqdm
+from nn import invSqrtSchedule
 
 
 def get_args():
@@ -23,37 +30,101 @@ def get_args():
     return arguments
 
 
-if __name__ == "__main__":
-    args = get_args()
+def train(args):
     NUM_STEPS = args.steps
     BATCH_SIZE = args.batch_size
     MAX_SEQ_LEN = args.seq_len
     MAX_TEXT_LEN = args.text_len
-    WIDTH = args.width
+    IMG_WIDTH = args.width
+    IMG_HEIGHT = 96
     DROP_RATE = args.dropout
     NUM_ATT_LAYERS = args.num_att_layers
     WARMUP_STEPS = args.warmup
     PRINT_EVERY = args.print_every
     SAVE_EVERY = args.save_every
     C1 = args.channels
-    C2 = C1 * 3//2
+    C2 = C1 * 3 // 2
     C3 = C1 * 2
     MAX_SEQ_LEN = MAX_SEQ_LEN - (MAX_SEQ_LEN % 8) + 8
-
+    cached_style_vec_path = "data/cached_style_vec.npy"
+    num_epoch = 20
+    batch_size = 64
     BUFFER_SIZE = 3000
     L = 60
+
+    save_path = "weights"
+    os.makedirs(save_path, exist_ok=True)
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+
     tokenizer = utils.Tokenizer()
     beta_set = utils.get_beta_set()
     alpha_set = torch.cumprod(1 - beta_set, dim=0)
-    style_extractor = nn.StyleExtractor()
+    # style_extractor = nn.StyleExtractor()
     model = nn.DiffusionWriter(num_layers=NUM_ATT_LAYERS, c1=C1, c2=C2, c3=C3, drop_rate=DROP_RATE)
 
-    lr = nn.InvSqrtSchedule(C3, warmup_steps=WARMUP_STEPS)
-    # TODO: There's a clip grad norm in the original Tensorflow implementation
-    optimizer = Adam(model.parameters(), lr, betas=(0.9, 0.98))
+    # TODO: There's a clip grad norm in the original Tensorflow Adam implementation
+    # TODO: Also need to figure out a way to have InvSqrtScheduler
+    # lr = nn.InvSqrtScheduler(C3, warmup_steps=WARMUP_STEPS)
+    optimizer = Adam(model.parameters(), betas=(0.9, 0.98))
 
     path = './data/train_strokes.p'
-    strokes, texts, samples = utils.preprocess_data(path, MAX_TEXT_LEN, MAX_SEQ_LEN, WIDTH, 96)
-    dataset = utils.create_dataset(strokes, texts, samples, style_extractor, BATCH_SIZE, BUFFER_SIZE)
+    print("Preprocessing data")
+    strokes, texts, _ = utils.preprocess_data(path, MAX_TEXT_LEN, MAX_SEQ_LEN, IMG_WIDTH, IMG_HEIGHT)
+    # dataset = utils.create_dataset(strokes, texts, samples, style_extractor, BATCH_SIZE, BUFFER_SIZE)
+    dataset = IAMDataset(strokes, texts, cached_style_vec_path)
+    train_loader = DataLoader(dataset, batch_size=32)
+    score_criterion = MSELoss()
+    pl_criterion = BCELoss()
 
-    # TODO: Train step
+    # init lazy module parameter
+    # stroke = torch.randn(1, 488, 2)
+    # text = torch.randint(0, 30, (1, 50))
+    # alphas = torch.randn(1, 1)
+    # style_vec = torch.randn(1, 14, 1280)
+    # with torch.no_grad():
+    #     _ = model(stroke, text, alphas, style_vec)
+    # for p in model.parameters():
+    #     p.register_hook(lambda grad: torch.clamp(grad, -100, 100))
+
+    model.to(device)
+
+    global_step = 1
+    print("Starting training")
+    for epoch in range(num_epoch):
+        for stroke, pen_lift, text, style_vec in (pbar := tqdm(train_loader)):
+            stroke, pen_lift, text, style_vec = stroke.to(device), pen_lift.to(device),\
+                                                text.to(device), style_vec.to(device)
+            # Uncomment for lr scheduler
+            # invSqrtSchedule(optimizer, WARMUP_STEPS, C3, global_step)
+            # alphas has shape: [batch, 1, 1]
+            alphas = utils.get_alphas(stroke.size(0), alpha_set)
+            alphas = alphas.to(device)
+            eps = torch.randn(stroke.size(), device=device)
+            stroke_perturbed = torch.sqrt(alphas) * stroke
+            stroke_perturbed += torch.sqrt(1 - alphas) * eps
+
+            optimizer.zero_grad()
+            score, pl_pred, att = model(stroke_perturbed, text, torch.sqrt(alphas), style_vec)
+            score_loss = score_criterion(score, eps)
+            pl_loss = torch.mean(pl_criterion(pen_lift, pl_pred) * torch.squeeze(alphas, -1))
+            # score_loss, pl_loss = nn.loss_fn(eps, score, pen_lift, pl_pred, alphas, bce_loss)
+            loss = score_loss + pl_loss
+            print(model.sigma_ffn[0].weight)
+            loss.backward()
+            optimizer.step()
+            tqdm.write(f"{score_loss}, {pl_loss}")
+
+            pbar.set_description(f"Epoch [{epoch + 1}/{num_epoch}]")
+            pbar.set_postfix({
+                "score_loss": score_loss.item(),
+                "pl_loss": pl_loss.item()
+            })
+            global_step += 1
+            if epoch % 5 == 0:
+                torch.save(model.state_dict(), os.path.join(save_path, f"epoch_{epoch:04}"))
+
+
+if __name__ == "__main__":
+    args = get_args()
+    train(args)

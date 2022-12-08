@@ -2,3 +2,5 @@
 __pycache__/
 data/*-all
 data/*.p
+weights/
+data/cached_style_vec.npy
