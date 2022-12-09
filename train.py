@@ -9,6 +9,7 @@ from torch.nn import BCELoss, MSELoss
 from torch.utils.data import DataLoader
 from dataset import IAMDataset
 from tqdm import tqdm
+import time
 from nn import invSqrtSchedule
 
 
@@ -52,12 +53,12 @@ def train(args):
     BUFFER_SIZE = 3000
     L = 60
 
-    save_path = "weights"
+    save_path = os.path.join("weights/", time.strftime("%m%d_%H%M%S"))
     os.makedirs(save_path, exist_ok=True)
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    tokenizer = utils.Tokenizer()
+    # tokenizer = utils.Tokenizer()
     beta_set = utils.get_beta_set()
     alpha_set = torch.cumprod(1 - beta_set, dim=0)
     # style_extractor = nn.StyleExtractor()
@@ -89,9 +90,12 @@ def train(args):
 
     model.to(device)
 
+    best_avg_loss = 1e5
     global_step = 1
     print("Starting training")
     for epoch in range(num_epoch):
+        score_losses = []
+        pl_losses = []
         for stroke, pen_lift, text, style_vec in (pbar := tqdm(train_loader)):
             stroke, pen_lift, text, style_vec = stroke.to(device), pen_lift.to(device),\
                                                 text.to(device), style_vec.to(device)
@@ -107,13 +111,11 @@ def train(args):
             optimizer.zero_grad()
             score, pl_pred, att = model(stroke_perturbed, text, torch.sqrt(alphas), style_vec)
             score_loss = score_criterion(score, eps)
-            pl_loss = torch.mean(pl_criterion(pen_lift, pl_pred) * torch.squeeze(alphas, -1))
+            pl_loss = torch.mean(pl_criterion(pl_pred, pen_lift) * torch.squeeze(alphas, -1))
             # score_loss, pl_loss = nn.loss_fn(eps, score, pen_lift, pl_pred, alphas, bce_loss)
             loss = score_loss + pl_loss
-            print(model.sigma_ffn[0].weight)
             loss.backward()
             optimizer.step()
-            tqdm.write(f"{score_loss}, {pl_loss}")
 
             pbar.set_description(f"Epoch [{epoch + 1}/{num_epoch}]")
             pbar.set_postfix({
@@ -121,8 +123,21 @@ def train(args):
                 "pl_loss": pl_loss.item()
             })
             global_step += 1
-            if epoch % 5 == 0:
-                torch.save(model.state_dict(), os.path.join(save_path, f"epoch_{epoch:04}"))
+
+            score_losses.append(score_loss.cpu().item())
+            pl_losses.append(pl_loss.cpu().item())
+
+        torch.save(model.state_dict(), os.path.join(save_path, f"last.pth"))
+        avg_loss = (sum(score_losses) + sum(pl_losses)) / len(score_losses)
+        if avg_loss < best_avg_loss:
+            torch.save(model.state_dict(), os.path.join(save_path, f"best.pth"))
+        if epoch % 5 == 0:
+            torch.save(model.state_dict(), os.path.join(save_path, f"epoch_{epoch:04}.pth"))
+
+        # Save log for graph later
+        with open(os.path.join(save_path, "loss_log.txt"), "a") as f:
+            for score_l, pl_l in zip(score_losses, pl_losses):
+                f.write(f"{score_l} {pl_l}\n")
 
 
 if __name__ == "__main__":

@@ -201,7 +201,7 @@ class DecoderLayer(nn.Module):
         self.stroke_pe = positional_encoding(2000, d_model, pos_factor=pos_factor)
         # self.stroke_pe = self.stroke_pe.permute(0, 2, 1)
         self.drop = Dropout(drop_rate)
-        self.lnorm = LayerNorm(d_model, eps=1e-6)  # TODO: set to not trainable?
+        self.lnorm = LayerNorm(d_model, eps=1e-6, elementwise_affine=False)
         self.text_dense = LazyLinear(d_model)
 
         self.mha = MultiheadAttention(d_model, num_heads, batch_first=True)
@@ -253,7 +253,7 @@ class TextStyleEncoder(nn.Module):
         # 256 is from [B, 70, 256] of style_vec
         self.style_ffn = ff_network(d_model, dff=d_ff)  # [256 -> d_ff -> d_model]
         self.mha = MultiheadAttention(d_model, 8, batch_first=True)
-        self.layer_norm = LayerNorm(d_model, eps=1e-6)
+        self.layer_norm = LayerNorm(d_model, eps=1e-6, elementwise_affine=False)
         self.dropout = Dropout(0.3)
         # Affine has input equal to number of channel in sigma
         self.affine1 = AffineTransformLayer(d_model)
@@ -285,7 +285,7 @@ class TextStyleEncoder(nn.Module):
 # print(out.shape)
 
 class DiffusionWriter(nn.Module):
-    def __init__(self, num_layers=4, c1=128, c2=192, c3=256, drop_rate=0.1, num_heads=8, device="cuda:0"):
+    def __init__(self, num_layers=2, c1=128, c2=192, c3=256, drop_rate=0.1, num_heads=8, device="cuda:0"):
         super().__init__()
         # forward process:
         # enc1 -> pool -> enc2 -> enc3 -> pool -> enc4 -> enc5 -> attention ->
