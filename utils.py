@@ -193,5 +193,5 @@ class Tokenizer:
         return "".join(text)
 
 
-# if __name__ == "__main__":
-#     cache_style_vectors("data/train_strokes.p")
+if __name__ == "__main__":
+    cache_style_vectors("data/train_strokes.p")

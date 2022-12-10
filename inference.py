@@ -53,6 +53,7 @@ def main():
         assetdir = os.listdir('data/assets')
         sourcename = 'data/assets/' + assetdir[np.random.randint(0, len(assetdir))]
     else:
+        # sourcename = "data/assets/r06-412z-04.tif"
         sourcename = args.writersource
 
     weights_path = "weights/best_best.pth"
@@ -101,7 +102,7 @@ def main():
                 plt.show()
 
     x = torch.cat([x, pen_lifts], dim=-1)
-    generate_stroke_image(x.numpy(), scale=1, show_output=False, save_path="./data/temp")
+    generate_stroke_image(x.numpy(), scale=1, show_output=False, save_path="generated_output")
 
 
 if __name__ == '__main__':
