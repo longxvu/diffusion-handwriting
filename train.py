@@ -4,7 +4,7 @@ import torch
 import argparse
 import utils
 import nn
-from torch.optim import Adam
+from torch.optim import AdamW
 from torch.nn import BCELoss, MSELoss
 from torch.utils.data import DataLoader
 from dataset import IAMDataset
@@ -42,18 +42,18 @@ def train(args):
     NUM_ATT_LAYERS = args.num_att_layers
     WARMUP_STEPS = args.warmup
     PRINT_EVERY = args.print_every
-    SAVE_EVERY = args.save_every
     C1 = args.channels
     C2 = C1 * 3 // 2
     C3 = C1 * 2
     MAX_SEQ_LEN = MAX_SEQ_LEN - (MAX_SEQ_LEN % 8) + 8
     cached_style_vec_path = "data/cached_style_vec.npy"
-    num_epoch = 20
+    num_epoch = 200
     batch_size = 64
-    BUFFER_SIZE = 3000
+    SAVE_EVERY = 50
     L = 60
 
     save_path = os.path.join("weights/", time.strftime("%m%d_%H%M%S"))
+    print(f"Saving weights and logs to {save_path}")
     os.makedirs(save_path, exist_ok=True)
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -65,16 +65,15 @@ def train(args):
     model = nn.DiffusionWriter(num_layers=NUM_ATT_LAYERS, c1=C1, c2=C2, c3=C3, drop_rate=DROP_RATE)
 
     # TODO: There's a clip grad norm in the original Tensorflow Adam implementation
-    # TODO: Also need to figure out a way to have InvSqrtScheduler
     # lr = nn.InvSqrtScheduler(C3, warmup_steps=WARMUP_STEPS)
-    optimizer = Adam(model.parameters(), betas=(0.9, 0.98))
+    optimizer = AdamW(model.parameters(), betas=(0.9, 0.98))
 
     path = './data/train_strokes.p'
     print("Preprocessing data")
     strokes, texts, _ = utils.preprocess_data(path, MAX_TEXT_LEN, MAX_SEQ_LEN, IMG_WIDTH, IMG_HEIGHT)
     # dataset = utils.create_dataset(strokes, texts, samples, style_extractor, BATCH_SIZE, BUFFER_SIZE)
     dataset = IAMDataset(strokes, texts, cached_style_vec_path)
-    train_loader = DataLoader(dataset, batch_size=32)
+    train_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
     score_criterion = MSELoss()
     pl_criterion = BCELoss()
 
@@ -127,17 +126,22 @@ def train(args):
             score_losses.append(score_loss.cpu().item())
             pl_losses.append(pl_loss.cpu().item())
 
+        avg_score_loss = sum(score_losses) / len(score_losses)
+        avg_pl_loss = sum(pl_losses) / len(pl_losses)
+        tqdm.write(f"avg_score_loss: {avg_score_loss:.5f}, avg_pl_loss: {avg_pl_loss:.5f}")
         torch.save(model.state_dict(), os.path.join(save_path, f"last.pth"))
-        avg_loss = (sum(score_losses) + sum(pl_losses)) / len(score_losses)
+        avg_loss = avg_score_loss + avg_pl_loss
         if avg_loss < best_avg_loss:
             torch.save(model.state_dict(), os.path.join(save_path, f"best.pth"))
-        if epoch % 5 == 0:
+        if epoch % SAVE_EVERY == 0:
             torch.save(model.state_dict(), os.path.join(save_path, f"epoch_{epoch:04}.pth"))
 
         # Save log for graph later
         with open(os.path.join(save_path, "loss_log.txt"), "a") as f:
             for score_l, pl_l in zip(score_losses, pl_losses):
                 f.write(f"{score_l} {pl_l}\n")
+        with open(os.path.join(save_path, "train_log.txt"), "a") as f:
+            f.write(f"Epoch {epoch+1}: {avg_score_loss} {avg_pl_loss}\n")
 
 
 if __name__ == "__main__":

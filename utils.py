@@ -9,6 +9,27 @@ from torch.utils.data import TensorDataset, DataLoader
 from nn import StyleExtractor
 
 
+def generate_stroke_image(strokes, save_path=None, show_output=True, scale=1):
+    strokes = strokes.squeeze()
+    positions = np.cumsum(strokes, axis=0).T[:2]
+    prev_ind = 0
+    W, H = np.max(positions, axis=-1) - np.min(positions, axis=-1)
+    plt.figure(figsize=(scale * W / H, scale))
+
+    for ind, value in enumerate(strokes[:, 2]):
+        if value > 0.5:
+            plt.plot(positions[0][prev_ind:ind], positions[1][prev_ind:ind], color='black')
+            prev_ind = ind
+
+    plt.axis('off')
+    if save_path:
+        plt.savefig(save_path, bbox_inches='tight')
+        print(f"Image saved to {save_path}")
+    if show_output:
+        plt.show()
+    plt.close()
+
+
 # Variance schedule
 def get_beta_set():
     start = 1e-5

@@ -18,8 +18,7 @@ def get_angles(pos, i, C, pos_factor=1):
     return pos * angle_rates * pos_factor
 
 
-def positional_encoding(position, C, pos_factor=1):
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+def positional_encoding(position, C, pos_factor=1, device="cuda:0"):
     angle_rads = get_angles(np.arange(position)[:, np.newaxis],
                             np.arange(C)[np.newaxis, :], C, pos_factor=pos_factor)
 
@@ -195,10 +194,10 @@ class StyleExtractor(torch.nn.Module):
 
 
 class DecoderLayer(nn.Module):
-    def __init__(self, d_model, num_heads, drop_rate=0.1, pos_factor=1):
+    def __init__(self, d_model, num_heads, drop_rate=0.1, pos_factor=1, device="cuda:0"):
         super().__init__()
-        self.text_pe = positional_encoding(2000, d_model, pos_factor=1)
-        self.stroke_pe = positional_encoding(2000, d_model, pos_factor=pos_factor)
+        self.text_pe = positional_encoding(2000, d_model, pos_factor=1, device=device)
+        self.stroke_pe = positional_encoding(2000, d_model, pos_factor=pos_factor, device=device)
         # self.stroke_pe = self.stroke_pe.permute(0, 2, 1)
         self.drop = Dropout(drop_rate)
         self.lnorm = LayerNorm(d_model, eps=1e-6, elementwise_affine=False)
@@ -294,9 +293,9 @@ class DiffusionWriter(nn.Module):
         self.sigma_ffn = ff_network(c1 // 4, dff=256, act_before=False)
         self.enc1 = ConvSubLayer(c1, c1)
         self.enc2 = ConvSubLayer(c1, c2, dilation=1)
-        self.enc3 = DecoderLayer(c2, 3, drop_rate, pos_factor=4)
+        self.enc3 = DecoderLayer(c2, 3, drop_rate, pos_factor=4, device=device)
         self.enc4 = ConvSubLayer(c2, c3, dilation=1)
-        self.enc5 = DecoderLayer(c3, 4, drop_rate, pos_factor=2)
+        self.enc5 = DecoderLayer(c3, 4, drop_rate, pos_factor=2, device=device)
         self.pool = AvgPool1d(2)
         # In the original code, UpSampling1D repeats the nearest neighbor with size=scale_factor
         self.upsample = Upsample(scale_factor=2, mode="nearest")
@@ -306,7 +305,7 @@ class DiffusionWriter(nn.Module):
         self.skip_conv3 = Conv1d(c3, c2 * 2, 3, padding='same')
         self.text_style_encoder = TextStyleEncoder(c2 * 2, c2 * 4)
         self.att_dense = Linear(c3, c2 * 2)
-        self.att_layers = [DecoderLayer(c2 * 2, 6, drop_rate) for _ in range(num_layers)]
+        self.att_layers = [DecoderLayer(c2 * 2, 6, drop_rate, device=device) for _ in range(num_layers)]
         for layer in self.att_layers:
             layer.to(device)
 
