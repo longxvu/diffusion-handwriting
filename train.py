@@ -56,7 +56,6 @@ def train(args):
     print(f"Saving weights and logs to {save_path}")
     os.makedirs(save_path, exist_ok=True)
 
-    device = "cuda" if torch.cuda.is_available() else "cpu"
 
     # tokenizer = utils.Tokenizer()
     beta_set = utils.get_beta_set()
@@ -87,6 +86,7 @@ def train(args):
     # for p in model.parameters():
     #     p.register_hook(lambda grad: torch.clamp(grad, -100, 100))
 
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     model.to(device)
 
     best_avg_loss = 1e5

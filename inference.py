@@ -33,13 +33,14 @@ def main():
     parser.add_argument('--diffmode', help="what kind of y_t-1 prediction to use, use 'standard' for  \
                                             Eq 9 in paper, will default to prediction in Eq 12", default='new', type=str)
     parser.add_argument('--show', help="whether to show the sample (popup from matplotlib)", default=False, type=bool)
-    parser.add_argument('--weights', help='the path of the loaded weights', default='./weights/model_weights.h5', type=str)
+    parser.add_argument('--weights', help='the path of the loaded weights', default='./weights/best_best.pth', type=str)
     parser.add_argument('--seqlen', help='number of timesteps in generated sequence, default 16 * length of text', default=None, type=int)
     parser.add_argument('--num_attlayers', help='number of attentional layers at lowest resolution, \
                                                  only change this if loaded model was trained with that hyperparameter', default=2, type=int)
     parser.add_argument('--channels', help='number of channels at lowest resolution, only change \
                                                  this if loaded model was trained with that hyperparameter', default=128, type=int)
-    
+
+    device = "cpu"
     args = parser.parse_args()
     time_steps = len(args.textstring) * 16 if args.seqlen is None else args.seqlen
     time_steps = time_steps - (time_steps % 8) + 8
@@ -50,14 +51,12 @@ def main():
 
     if args.writersource is None:
         assetdir = os.listdir('data/assets')
-        # sourcename = 'data/assets/' + assetdir[np.random.randint(0, len(assetdir))]
-        sourcename = "data/assets/r06-412z-04.tif"
-    else: 
+        sourcename = 'data/assets/' + assetdir[np.random.randint(0, len(assetdir))]
+    else:
         sourcename = args.writersource
 
-    weights_path = "weights/epoch_0500.pth"
+    weights_path = "weights/best_best.pth"
 
-    device = "cpu"
     L = 60
     tokenizer = utils.Tokenizer()
     beta_set = utils.get_beta_set()
@@ -102,7 +101,7 @@ def main():
                 plt.show()
 
     x = torch.cat([x, pen_lifts], dim=-1)
-    generate_stroke_image(x.numpy(), scale=1, show_output=False, save_path="generated_output.png")
+    generate_stroke_image(x.numpy(), scale=1, show_output=False, save_path="./data/temp")
 
 
 if __name__ == '__main__':

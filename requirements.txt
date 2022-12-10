@@ -1,4 +1,6 @@
 matplotlib
 tqdm
-torch
+torch # 1.13.0
 torchvision
+numpy #1.23
+#python 3.9
